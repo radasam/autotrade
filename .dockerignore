@@ -1,0 +1,6 @@
+.env
+docker-compose.yaml
+test_config.json
+prometheus.yaml
+.venv
+.gitignore

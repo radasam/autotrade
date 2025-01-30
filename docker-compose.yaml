@@ -1,0 +1,24 @@
+services:
+  autotrade:
+    build:
+      context: .
+    ports:
+      - "8000:8000"
+    volumes:
+        - ./test_config.json:/tests_config.json
+        - /Users/samradage/Documents/coinbase/.key2:/api_key
+        - //Users/samradage/Documents/coinbase/.secret2:/api_secret
+    environment:
+      - API_KEY_PATH=./api_key
+      - SECRET_KEY_PATH=./api_secret
+
+  grafana:
+    image: grafana/grafana-enterprise
+    ports:
+      - "3000:3000"
+  prometheus:
+    image: prom/prometheus
+    volumes:
+     - "./prometheus.yaml:/etc/prometheus/prometheus.yml"
+    ports:
+      - "9090:9090"
