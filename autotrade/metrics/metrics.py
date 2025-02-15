@@ -3,7 +3,6 @@ import threading
 
 from autotrade.events.events import Events
 from autotrade.metrics.prometheus import PrometheusExporter
-from autotrade.settings.config import ConfigReloader
 from autotrade.metrics.metric_values.market_price import MarketPrice
 from autotrade.metrics.metric_values.orders import OrderImbalance
 from autotrade.metrics.metric_values.recieved_messages import Recieved_Messages
@@ -17,7 +16,6 @@ class Metric():
         self.name = name
         self.value = value
         self.threads = threads
-        self.lock_queue = False
         pass
 
     async def _handle_update(self):
@@ -31,14 +29,11 @@ class Metric():
                 continue
 
     def update(self, **kwargs):
-        if self.queue.qsize() < 60000 and not self.lock_queue:
-            try:
-                self.queue.put_nowait(kwargs)
-            except asyncio.QueueFull:
-                print(f"{self.name} queue full")
-                pass
-        else:
-            self.lock_queue = True
+        try:
+            self.queue.put_nowait(kwargs)
+        except asyncio.QueueFull:
+            print(f"{self.name} queue full")
+            pass
 
     async def get_value(self):
         return self.value.get_value()
@@ -49,7 +44,7 @@ class Metric():
         consumers = [asyncio.create_task(self._handle_update()) for i in range(self.threads)]
         await asyncio.gather(*consumers)
 
-    def start(self):
+    async def start(self):
         self.thread = threading.Thread(target=asyncio.run, args=(self._start(),))
         self.thread.start()
 
@@ -62,7 +57,7 @@ class ProductMetrics():
         self.market_price = Metric("price", MarketPrice(product, metrics_exporter), 1)
         self.recieved_messages = Metric("message_info", Recieved_Messages(product, metrics_exporter), 1)
 
-    def update_order(self, order_updates: List[OrderUpdate], time: str, recieved: int):
+    def update_order(self, order_updates, time: str, recieved: int):
         self.orders.update(**{"order_updates":order_updates, "time":time, "recieved": recieved})
 
     def update_market_price(self, price: float, time: str, recieved: int):
@@ -87,7 +82,7 @@ class Metrics():
         self.products[product].start()
 
 
-    def update_order(self, product: str, order_updates :List[OrderUpdate], time: str, recieved: int):
+    def update_order(self, product: str, order_updates, time: str, recieved: int):
         if product not in self.products:
             raise ValueError(f"product not initialised in metrics: {product}")
         

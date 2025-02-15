@@ -9,4 +9,6 @@ if __name__ == "__main__":
     
     engine = Engine(get_product())
 
+    engine.setup()
+
     engine.start()

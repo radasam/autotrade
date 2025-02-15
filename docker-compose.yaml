@@ -5,13 +5,19 @@ services:
     ports:
       - "8000:8000"
     volumes:
-        - ./test_config.json:/tests_config.json
+        - ./test_config.json:/test_config.json
         - /Users/samradage/Documents/coinbase/.key2:/api_key
-        - //Users/samradage/Documents/coinbase/.secret2:/api_secret
+        - /Users/samradage/Documents/coinbase/.secret2:/api_secret
     environment:
       - API_KEY_PATH=./api_key
       - SECRET_KEY_PATH=./api_secret
-
+      - AWS_ACCESS_KEY_ID
+      - AWS_SECRET_ACCESS_KEY
+      - AWS_DEFAULT_REGION
+    deploy:
+      resources:
+        limits:
+          cpus: "4"
   grafana:
     image: grafana/grafana-enterprise
     ports:

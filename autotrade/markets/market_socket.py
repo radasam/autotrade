@@ -19,6 +19,7 @@ class MarketSocket():
         self.client = WSClient(api_key=api_key, api_secret=api_secret, on_message=self.on_message, verbose=True)
 
     def on_message(self, message: str):
+        is_snapshot = False
         jsonmsg = json.loads(message)
         update_count = 0
         # logging.info("got msg")
@@ -29,18 +30,14 @@ class MarketSocket():
 
         channel = jsonmsg["channel"]
         if channel == "l2_data":
-            order_updates = []
             events = jsonmsg["events"]     
             for event in events:
                 event_type = event["type"]
                 if event_type == "snapshot":
-                    logging.info("recieved snapshot")
+                    is_snapshot = True
                 product = event["product_id"]
                 updates = event["updates"]
-                for update in updates:
-                    update_count += 1
-                    order_updates.append(OrderUpdate(side=update["side"], price=float(update["price_level"]), volume=float(update["new_quantity"])))
-            self.metrics.update_order(product, order_updates, update["event_time"], recieved)
+                self.metrics.update_order(product, updates, jsonmsg["timestamp"], recieved)
             self.metrics.update_recieved_messages(product, channel, 1)
         if channel == "ticker":
             events = jsonmsg["events"]
@@ -54,6 +51,8 @@ class MarketSocket():
                     self.metrics.update_market_price(product, price, timestamp, recieved)
             self.metrics.update_recieved_messages(product, channel, update_count)
 
+        if is_snapshot:
+            logging.info("snapshot done")
 
     def start(self):
         self.client.open()

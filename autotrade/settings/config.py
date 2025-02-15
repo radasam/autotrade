@@ -14,7 +14,7 @@ class ConfigReloader():
         self.filepath = filepath
         self.config = Config()
         self.lock = threading.Lock()
-        self.interval = 60
+        self.interval = 300
         pass
 
     async def get_config(self) -> Config:
