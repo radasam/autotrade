@@ -1,12 +1,11 @@
 import dateutil.parser
 import datetime
-import threading
+import asyncio
 from typing import List
 
 from autotrade.metrics.metric_values.main import MetricValue
 from autotrade.metrics.prometheus import PrometheusExporter
 from autotrade.settings.config import config
-from autotrade.types.order_update import OrderUpdate
 from autotrade.exporter.exporter_manager import exporter_manager
 
 # 2025-01-12T14:59:32.032976Z
@@ -22,13 +21,13 @@ class OrderImbalance(MetricValue):
         self.min_sell = 0
         self.max_buy = 0
         self.imbalance = 0
-        self.buys_lock = threading.Lock()
-        self.sells_lock = threading.Lock()
+        self.buys_lock = asyncio.Lock()
+        self.sells_lock = asyncio.Lock()
 
     def get_value(self):
         return self.imbalance
     
-    def update_orders(self, updates):
+    async def update_orders(self, updates):
         for update in updates:
             side=update["side"]
             price=float(update["price_level"])
@@ -41,10 +40,10 @@ class OrderImbalance(MetricValue):
                 # we can delete the entry if there is zero volume
                 if volume == 0:
                     if price in self.order_buys:
-                        with self.buys_lock:
+                        async with self.buys_lock:
                             del self.order_buys[price]
                         continue
-                with self.buys_lock:
+                async with self.buys_lock:
                     self.order_buys[price] = volume
                 continue
             
@@ -56,10 +55,10 @@ class OrderImbalance(MetricValue):
             # we can delete the entry if there is zero volume
             if volume == 0:
                 if price in self.order_sells:
-                    with self.sells_lock:
+                    async with self.sells_lock:
                         del self.order_sells[price]
                     continue
-            with self.sells_lock:
+            async with self.sells_lock:
                 self.order_sells[price] = volume
             continue
 
@@ -70,7 +69,7 @@ class OrderImbalance(MetricValue):
         update_time = dateutil.parser.parse(kwargs.get("time"))
         recieved_time = kwargs.get("recieved")
 
-        self.update_orders(orders)
+        await self.update_orders(orders)
 
         config_value = await config.get_config()
         percentile = config_value.order_cutoff_percentile
@@ -80,10 +79,10 @@ class OrderImbalance(MetricValue):
         buys_copy = {}
         sells_copy = {}
 
-        with self.buys_lock:    
+        async with self.buys_lock:    
             buys_copy =  self.order_buys.copy()
 
-        with self.sells_lock:    
+        async with self.sells_lock:    
             sells_copy =  self.order_sells.copy()
 
         for k, v in buys_copy.items():
@@ -94,7 +93,9 @@ class OrderImbalance(MetricValue):
             if k < self.max_buy  * (1 + percentile):
                 sells += k * v
 
-        self.imbalance = buys - sells
+        self.imbalance = buys - sells / (buys + sells)
+        self.spread = self.max_buy - self.min_sell
+        
 
         now = datetime.datetime.now(tz=datetime.timezone.utc)
         recieved_lag = now.microsecond - recieved_time

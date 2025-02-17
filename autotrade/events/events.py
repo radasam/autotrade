@@ -30,11 +30,12 @@ class Events():
 
     def __init__(self):
         self.handlers: Dict[str, Event] = {}
+        self.threads = 1
 
     async def _event_loop(self):
         while True:
             try:
-                event_name = self.metrics_channel.get_nowait()  # Receive data from the channel
+                event_name = self.queue.get_nowait()  # Receive data from the channel
 
                 if event_name not in self.handlers:
                     logging.error(f"[events] tried to call non existant event {event_name}")
@@ -44,6 +45,7 @@ class Events():
                 event.trigger()
 
             except asyncio.QueueEmpty:
+                await asyncio.sleep(0.1)
                 continue
 
     def add_handler(self, id: str, event: str, handler):
@@ -53,13 +55,10 @@ class Events():
         self.handlers[event].add_handler(id, handler)
 
     def trigger_event(self, event: str):
-        self.metrics_channel.put_nowait(event)
+        self.queue.put_nowait(event)
 
-    async def _start(self):
+    async def start(self):
         loop = asyncio.get_event_loop()
-        self.metrics_channel = asyncio.Queue(maxsize=10000, loop=loop)
-        await self._event_loop()
-
-    def start(self):
-        self.thread = threading.Thread(target=asyncio.run, args=(self._start(),))
-        self.thread.start()
+        self.queue = asyncio.Queue(maxsize=400000, loop=loop)
+        consumers = [asyncio.create_task(self._event_loop()) for i in range(self.threads)]
+        await asyncio.gather(*consumers)

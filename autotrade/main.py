@@ -2,6 +2,7 @@ from autotrade.engine.main import Engine
 from autotrade.settings.contants import get_product
 
 import logging
+import asyncio
 
 
 if __name__ == "__main__":
@@ -11,4 +12,4 @@ if __name__ == "__main__":
 
     engine.setup()
 
-    engine.start()
+    asyncio.run(engine.start())

@@ -7,6 +7,7 @@ from autotrade.exporter.exporter import Exporter
 class ExporterManager:
     def __init__(self):
         self.exporters : Dict[str, Exporter] = {}
+        self.threads = 1
         pass
 
     def add_observation(self, **kwargs):
@@ -24,6 +25,7 @@ class ExporterManager:
                 self.queue.task_done()
 
             except asyncio.QueueEmpty:
+                await asyncio.sleep(0.1)
                 continue
 
 
@@ -39,14 +41,11 @@ class ExporterManager:
         self.exporters[metric_name] = exporter
         pass
 
-    async def _start(self):
+    async def start(self):
         loop = asyncio.get_event_loop()
         self.queue = asyncio.Queue(maxsize=400000, loop=loop)
-        await asyncio.create_task(self._handle_update())
-
-    def start(self):
-        self.thread = threading.Thread(target=asyncio.run, args=(self._start(),))
-        self.thread.start()
+        consumers = [asyncio.create_task(self._handle_update()) for i in range(self.threads)]
+        await asyncio.gather(*consumers)
 
 
 

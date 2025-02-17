@@ -1,6 +1,3 @@
-from typing import Dict, List
-import threading
-
 from autotrade.events.events import Events
 from autotrade.metrics.prometheus import PrometheusExporter
 from autotrade.metrics.metric_values.market_price import MarketPrice
@@ -10,6 +7,7 @@ from autotrade.metrics.metric_values.main import MetricValue
 from autotrade.types.order_update import OrderUpdate
 
 import asyncio
+import logging
 
 class Metric():
     def __init__(self, name: str, value: MetricValue, threads: int):
@@ -26,6 +24,7 @@ class Metric():
                 self.queue.task_done()
 
             except asyncio.QueueEmpty:
+                await asyncio.sleep(0.1)
                 continue
 
     def update(self, **kwargs):
@@ -37,19 +36,17 @@ class Metric():
 
     async def get_value(self):
         return self.value.get_value()
-        
-    async def _start(self):
+
+    async def start(self):
+        print(f"Starting metric {self.name}")
         loop = asyncio.get_event_loop()
         self.queue = asyncio.Queue(maxsize=400000, loop=loop)
         consumers = [asyncio.create_task(self._handle_update()) for i in range(self.threads)]
         await asyncio.gather(*consumers)
 
-    async def start(self):
-        self.thread = threading.Thread(target=asyncio.run, args=(self._start(),))
-        self.thread.start()
 
 
-class ProductMetrics():
+class Metrics():
     def __init__(self, product: str, metrics_exporter: PrometheusExporter):
         self.product = product
         self.metrics_exporter = metrics_exporter
@@ -66,39 +63,27 @@ class ProductMetrics():
     def update_recieved_messages(self, channel: str, update_count: int):
         self.recieved_messages.update(**{"channel": channel, "update_count": update_count})
 
-    def start(self):
-        self.market_price.start()
-        self.orders.start()
-        self.recieved_messages.start()
+    async def start(self):
+        await asyncio.gather(self.orders.start(), self.market_price.start(), self.recieved_messages.start())
 
-class Metrics():
-    def __init__(self, events: Events):
-        self.products : Dict[str, ProductMetrics] = {}
+class MetricsManager():
+    def __init__(self, product: str, events: Events):
         self.events = events
         self.metrics_exporter = PrometheusExporter()
-
-    def add_product(self, product: str):
-        self.products[product] = ProductMetrics(product, self.metrics_exporter)
-        self.products[product].start()
+        self.metrics = Metrics(product, self.metrics_exporter)
 
 
-    def update_order(self, product: str, order_updates, time: str, recieved: int):
-        if product not in self.products:
-            raise ValueError(f"product not initialised in metrics: {product}")
-        
-        self.products[product].update_order(order_updates, time, recieved)
+    def update_order(self, order_updates, time: str, recieved: int):
+        self.metrics.update_order(order_updates, time, recieved)
 
-    def update_market_price(self, product: str, price: float, time: str, recieved: int):
-        if product not in self.products:
-            raise ValueError(f"product not initialised in metrics: {product}")
+    def update_market_price(self, price: float, time: str, recieved: int):
+        self.metrics.update_market_price(price, time, recieved)
 
-        self.products[product].update_market_price(price, time, recieved)
-
-    def update_recieved_messages(self, product: str, channel: str, update_count: int):
-        if product not in self.products:
-            raise ValueError(f"product not initialised in metrics: {product}")
-
-        self.products[product].update_recieved_messages(channel, update_count)
+    def update_recieved_messages(self, channel: str, update_count: int):
+        self.metrics.update_recieved_messages(channel, update_count)
     
     def start_metrics_exporter(self):
         self.metrics_exporter.start()
+
+    async def start(self):
+        await self.metrics.start()

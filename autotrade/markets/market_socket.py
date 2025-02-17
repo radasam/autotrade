@@ -1,16 +1,17 @@
 import json
 import logging
 import datetime
+import asyncio
 
 from autotrade.settings.secrets import get_secret_key, get_api_key
-from autotrade.metrics.metrics import Metrics
+from autotrade.metrics.metrics import MetricsManager
 from autotrade.events.events import Events
 from autotrade.types.order_update import OrderUpdate
 
 from coinbase.websocket import WSClient
 
 class MarketSocket(): 
-    def __init__(self, product: str, metrics: Metrics, events: Events):
+    def __init__(self, product: str, metrics: MetricsManager, events: Events):
         api_key = get_api_key() 
         api_secret = get_secret_key()
         self.product = product
@@ -22,7 +23,6 @@ class MarketSocket():
         is_snapshot = False
         jsonmsg = json.loads(message)
         update_count = 0
-        # logging.info("got msg")
         recieved = datetime.datetime.now().microsecond
         if "channel" not in jsonmsg:
             print(jsonmsg)
@@ -35,27 +35,28 @@ class MarketSocket():
                 event_type = event["type"]
                 if event_type == "snapshot":
                     is_snapshot = True
-                product = event["product_id"]
+                    logging.info("snapshot")
                 updates = event["updates"]
-                self.metrics.update_order(product, updates, jsonmsg["timestamp"], recieved)
-            self.metrics.update_recieved_messages(product, channel, 1)
-        if channel == "ticker":
+                self.metrics.update_order(updates, jsonmsg["timestamp"], recieved)
+            self.metrics.update_recieved_messages(channel, 1)
+        elif channel == "ticker":
             events = jsonmsg["events"]
             for event in events:
                 tickers = event["tickers"]
                 for ticker in tickers:
                     update_count += 1
-                    product = ticker["product_id"]
                     price = float(ticker["price"])
                     timestamp = jsonmsg["timestamp"]
-                    self.metrics.update_market_price(product, price, timestamp, recieved)
-            self.metrics.update_recieved_messages(product, channel, update_count)
+                    self.metrics.update_market_price(price, timestamp, recieved)
+            self.metrics.update_recieved_messages(channel, update_count)
+        else:
+            logging.error(f"unknown channel {channel}") 
 
         if is_snapshot:
             logging.info("snapshot done")
 
-    def start(self):
+    async def start(self):
+        await asyncio.sleep(2)
         self.client.open()
         self.client.subscribe([self.product], ["heartbeats" , "level2", "ticker"])
-        self.client.run_forever_with_exception_check()
-        self.client.close()
+        await self.client.run_forever_with_exception_check_async()
