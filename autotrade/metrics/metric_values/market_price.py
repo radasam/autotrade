@@ -3,6 +3,7 @@ import datetime
 
 from autotrade.metrics.metric_values.main import MetricValue
 from autotrade.metrics.prometheus import PrometheusExporter
+from autotrade.exporter.exporter_manager import exporter_manager
 
 class MarketPrice(MetricValue):
     def __init__(self, product: str, metrics_exporter: PrometheusExporter):
@@ -22,6 +23,8 @@ class MarketPrice(MetricValue):
         now = datetime.datetime.now(tz=datetime.timezone.utc)
         recieved_lag = now.microsecond - recieved_time
         update_lag = (now - update_time).microseconds
+
+        exporter_manager.add_observation(**{"metric_name": "market_price", "time": kwargs.get("time"), "value": price})
 
         self.market_price = price
         self.metrics_exporter.guage_market_price.labels(self.product).set(price)

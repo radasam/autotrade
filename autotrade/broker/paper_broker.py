@@ -2,7 +2,7 @@ import logging
 
 from autotrade.metrics.metrics import Metrics
 
-class PaperTrader():
+class PaperBroker():
 
     def __init__(self, starting_balance: float, metrics: Metrics):
         self.balance = starting_balance

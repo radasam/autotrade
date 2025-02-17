@@ -1,0 +1,73 @@
+- hosts: localhost
+  tasks:
+    - name: add host to inventory
+      add_host:
+        name: new_host
+        ansible_host: blah
+        groups: vms
+
+
+- hosts: vms
+  tasks:
+    - name: Install Certificates
+      apt:
+        name: 
+          - ca-certificates 
+          - curl
+        state: present
+        update_cache: true
+
+    - name: Ensure /etc/apt/keyrings directory exists with correct permissions
+      file:
+        path: /etc/apt/keyrings
+        state: directory
+        mode: "0755"
+      become: true
+
+    - name: Download Docker GPG key
+      get_url:
+        url: https://download.docker.com/linux/debian/gpg
+        dest: /etc/apt/keyrings/docker.asc
+        mode: "0644"
+      become: true
+
+    - name: Add Docker APT repository
+      shell: |
+        echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] \
+        https://download.docker.com/linux/debian $(. /etc/os-release && echo \"$VERSION_CODENAME\") stable" > /etc/apt/sources.list.d/docker.list
+      become: true
+
+    - name: Install Docker and related packages
+      apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-buildx-plugin
+          - docker-compose-plugin
+          - docker-compose
+        state: present
+        update_cache: true
+      become: true
+
+    - name: Copy docker-compose.yml to remote host
+      copy:
+        src: ../../docker-compose.yaml
+        dest: /docker-compose.yaml
+        mode: "0644"
+      become: true
+
+    - name: Copy api key to remote host
+      copy:
+        src: "{{ lookup('env', 'API_KEY_PATH') }}"
+        dest: /api_key
+        mode: "0644"
+      become: true
+
+    - name: Copy api secret to remote host
+      copy:
+        src: "{{ lookup('env', 'SECRET_KEY_PATH') }}"
+        dest: /api_secret
+        mode: "0644"
+      become: true
+
