@@ -1,13 +1,13 @@
 from autotrade.events.events import Events
 from autotrade.metrics.prometheus import PrometheusExporter
 from autotrade.metrics.metric_values.market_price import MarketPrice
-from autotrade.metrics.metric_values.orders import OrderImbalance
+from autotrade.metrics.metric_values.orders import Orders
 from autotrade.metrics.metric_values.recieved_messages import Recieved_Messages
 from autotrade.metrics.metric_values.main import MetricValue
-from autotrade.types.order_update import OrderUpdate
+from autotrade.types.order_metrics import OrderMetrics, PriceMetrics
 
 import asyncio
-import logging
+
 
 class Metric():
     def __init__(self, name: str, value: MetricValue, threads: int):
@@ -35,7 +35,7 @@ class Metric():
             pass
 
     async def get_value(self):
-        return self.value.get_value()
+        return await self.value.get_value()
 
     async def start(self):
         print(f"Starting metric {self.name}")
@@ -47,18 +47,24 @@ class Metric():
 
 
 class Metrics():
-    def __init__(self, product: str, metrics_exporter: PrometheusExporter):
+    def __init__(self, product: str, metrics_exporter: PrometheusExporter, events: Events):
         self.product = product
         self.metrics_exporter = metrics_exporter
-        self.orders = Metric("orders", OrderImbalance(product, metrics_exporter), 1)
-        self.market_price = Metric("price", MarketPrice(product, metrics_exporter), 1)
+        self.orders = Metric("orders", Orders(product,0.01, metrics_exporter, events), 1)
+        self.market_price = Metric("price", MarketPrice(product, metrics_exporter, events), 1)
         self.recieved_messages = Metric("message_info", Recieved_Messages(product, metrics_exporter), 1)
 
     def update_order(self, order_updates, time: str, recieved: int):
         self.orders.update(**{"order_updates":order_updates, "time":time, "recieved": recieved})
 
+    async def get_order_metrics(self) -> OrderMetrics:
+        return await self.orders.get_value()
+
     def update_market_price(self, price: float, time: str, recieved: int):
         self.market_price.update(**{"price":price, "time":time, "recieved": recieved})
+
+    async def get_price_metrics(self) -> PriceMetrics:
+        return await self.market_price.get_value()
 
     def update_recieved_messages(self, channel: str, update_count: int):
         self.recieved_messages.update(**{"channel": channel, "update_count": update_count})
@@ -68,9 +74,8 @@ class Metrics():
 
 class MetricsManager():
     def __init__(self, product: str, events: Events):
-        self.events = events
         self.metrics_exporter = PrometheusExporter()
-        self.metrics = Metrics(product, self.metrics_exporter)
+        self.metrics = Metrics(product, self.metrics_exporter, events)
 
 
     def update_order(self, order_updates, time: str, recieved: int):

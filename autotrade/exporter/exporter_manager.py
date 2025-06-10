@@ -5,12 +5,18 @@ from typing import Dict
 from autotrade.exporter.exporter import Exporter
 
 class ExporterManager:
-    def __init__(self):
+    def __init__(self, enabled: bool = True):
         self.exporters : Dict[str, Exporter] = {}
         self.threads = 1
+        self.started = False
+        self.enabled = enabled
         pass
 
     def add_observation(self, **kwargs):
+        if not self.enabled:
+            return
+        if not self.started:
+            return
         try:
             self.queue.put_nowait(kwargs)
         except asyncio.QueueFull:
@@ -42,6 +48,9 @@ class ExporterManager:
         pass
 
     async def start(self):
+        if not self.enabled:
+            return
+        self.started = True
         loop = asyncio.get_event_loop()
         self.queue = asyncio.Queue(maxsize=400000, loop=loop)
         consumers = [asyncio.create_task(self._handle_update()) for i in range(self.threads)]
@@ -49,4 +58,4 @@ class ExporterManager:
 
 
 
-exporter_manager = ExporterManager()
+exporter_manager = ExporterManager(True)

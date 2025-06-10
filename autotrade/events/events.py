@@ -3,8 +3,10 @@ from typing import Dict
 import logging
 import threading
 
-class Event():
-    def __init__(self, event_name: str):
+from autotrade.events.event_types import EventType, Event
+
+class EventHandler():
+    def __init__(self, event_name: EventType):
         self.event_name = event_name
         self.handlers = {}
         pass
@@ -22,39 +24,40 @@ class Event():
         logging.info(f"[events] removing event handler {self.event_name} {id}")
         del self.handlers[id]
 
-    def trigger(self):
+    def trigger(self, value):
         for handler in self.handlers.values():
-            handler()
+            asyncio.create_task(handler(value))
 
 class Events():
 
     def __init__(self):
-        self.handlers: Dict[str, Event] = {}
+        self.handlers: Dict[str, EventHandler] = {}
         self.threads = 1
 
     async def _event_loop(self):
         while True:
             try:
-                event_name = self.queue.get_nowait()  # Receive data from the channel
+                event = self.queue.get_nowait()  # Receive data from the channel
 
-                if event_name not in self.handlers:
-                    logging.error(f"[events] tried to call non existant event {event_name}")
+                if event.event_type not in self.handlers:
+                    logging.error(f"[events] tried to call non existant event {event.name}")
                     continue
 
-                event = self.handlers[event_name]
-                event.trigger()
+                handler = self.handlers[event.event_type]
+                handler.trigger(event.value)
 
             except asyncio.QueueEmpty:
                 await asyncio.sleep(0.1)
                 continue
 
-    def add_handler(self, id: str, event: str, handler):
+    def add_handler(self, id: str, event: EventType, handler):
         if event not in self.handlers:
-            self.handlers[event] = Event(event)
+            self.handlers[event] = EventHandler(event)
 
         self.handlers[event].add_handler(id, handler)
 
-    def trigger_event(self, event: str):
+    def trigger_event(self, event_name: EventType, value):
+        event = Event(event_name, value)
         self.queue.put_nowait(event)
 
     async def start(self):

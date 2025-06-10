@@ -1,3 +1,11 @@
 {
-    "order_cutoff_percentile": 0.01
+    "price_distance_threshold": 5000,
+    "order_size_threshold":0.95,
+    "spread_threshold": 0.02,
+    "imbalance_threshold": 0.3,
+    "min_signals_for_buy_action":5,
+    "min_signals_for_sell_action":3,
+    "buy_offset_multiplier": 10,
+    "sell_offset_multiplier": 10,
+    "order_price_multiplier": 0.3
 }

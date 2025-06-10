@@ -1,3 +1,4 @@
+SHELL := /bin/bash
 DEV_TAG=?
 VERSION=$(shell cat VERSION)
 
@@ -14,7 +15,7 @@ build_and_push:
 	docker build --platform linux/amd64 . -t radasam/autotrade:$(VERSION)
 	docker push radasam/autotrade:$(VERSION)
 
-run-dev:
+run_dev:
 	make build-dev
 	docker run -it \
 	--cpus 2 \
@@ -25,3 +26,8 @@ run-dev:
 	--volume /Users/samradage/Documents/coinbase/.key2:/api_key \
 	--volume /Users/samradage/Documents/coinbase/.secret2:/api_secret \
     --rm radasam/autotrade:$(VERSION)-$(DEV_TAG) 
+
+deploy_digital_ocean:
+	python ./deploy/main.py -n=test-droplet
+	ANSIBLE_CONFIG=./deploy/ansible/ansible.cfg ansible-playbook ./deploy/ansible/playbook.yml -i ./deploy/ansible/hosts
+	

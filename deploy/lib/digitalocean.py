@@ -8,7 +8,7 @@ digitalocean_region = os.getenv("DIGITALOCEAN_REGION", "sfo3")
 digitalocean_image = os.getenv("DIGITALOCEAN_IMAGE", "debian-12-x64")
 digitalocean_size = os.getenv("DIGITALOCEAN_SIZE", "s-1vcpu-1gb-35gb-intel")
 
-def create_droplet(name, **kwargs):
+def create_droplet(name, **kwargs) -> str:
 
     manager = Manager(token=digitalocean_token)
     keys = manager.get_all_sshkeys()
@@ -36,3 +36,5 @@ def create_droplet(name, **kwargs):
         time.sleep(5)
 
     print(f"Droplet {name} created with ip: {droplet.ip_address}")
+
+    return droplet.ip_address

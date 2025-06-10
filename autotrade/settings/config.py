@@ -1,11 +1,32 @@
 import logging
 import asyncio 
+from abc import ABC, abstractmethod
 
 from pydantic import BaseModel
 
 class Config(BaseModel):
-    order_cutoff_percentile: float = 0.1
+    price_distance_threshold: float = 10000
+    order_size_threshold: float = 0.95
+    spread_threshold: float = 0.02
+    imbalance_threshold: float = 0.3
+    min_signals_for_buy_action: int = 5
+    min_signals_for_sell_action: int = 3
+    take_profit_multiplier: float = 1.0
+    take_profit_sensitivity: float = 0.5
+    stop_loss_percentage: float = 0.01
+    stop_less_offset: float = 0.01
+    moving_average_sensitivity: float = 700
+    order_price_multiplier: float = 0.7
+    strategy: str = "moving_average"
 
+class ConfigGetter(ABC):
+    def __init__(self):
+        pass
+
+    @abstractmethod
+    async def get_config(self) -> Config:
+        """Gets the current configuration."""
+        pass
 
 class ConfigReloader():
     def __init__(self, filepath: str):
@@ -53,3 +74,7 @@ class ConfigReloader():
 
 
 config = ConfigReloader("./test_config.json")
+
+def set_config(override: ConfigReloader):
+    global config
+    config = override
