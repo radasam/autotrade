@@ -2,7 +2,7 @@ import pytest
 
 from autotrade.trader.order_tracker import OrderTracker
 from autotrade.trader.position_tracker import PositionTracker
-from autotrade.metrics.prometheus import PrometheusExporter
+from autotrade.metrics.exporter.prometheus import PrometheusExporter
 from autotrade.types.pending_order import PendingOrder
 from autotrade.settings.contants import ORDER_BUY, ORDER_SELL
 

@@ -15,9 +15,11 @@ class Config(BaseModel):
     take_profit_sensitivity: float = 0.5
     stop_loss_percentage: float = 0.01
     stop_less_offset: float = 0.01
-    moving_average_sensitivity: float = 700
-    order_price_multiplier: float = 0.7
+    moving_average_sensitivity: float = 5000
+    order_price_multiplier: float = 1
     strategy: str = "moving_average"
+    order_type: str = "market"
+    min_confidence_for_action: float = 0.5
 
 class ConfigGetter(ABC):
     def __init__(self):

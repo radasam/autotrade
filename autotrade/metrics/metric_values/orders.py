@@ -5,7 +5,7 @@ import numpy as np
 
 from autotrade.types.order_metrics import OrderMetrics
 from autotrade.metrics.metric_values.main import MetricValue
-from autotrade.metrics.prometheus import PrometheusExporter
+from autotrade.metrics.exporter.prometheus import PrometheusExporter
 from autotrade.settings.config import config
 from autotrade.exporter.exporter_manager import exporter_manager
 from autotrade.events.events import Events

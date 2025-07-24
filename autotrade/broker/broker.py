@@ -11,7 +11,7 @@ class Broker(ABC):
         pass
 
     @abstractmethod
-    def create_market_order(self, volume: str, cost: str, confidence: float) -> Tuple[Union[PendingOrder,None], Union[BrokerError,None]]:
+    def create_market_order(self, volume: str, confidence: float, timeout_sec: int) -> Tuple[Union[PendingOrder,None], Union[BrokerError,None]]:
         pass
 
     @abstractmethod

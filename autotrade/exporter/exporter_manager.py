@@ -58,4 +58,4 @@ class ExporterManager:
 
 
 
-exporter_manager = ExporterManager(True)
+exporter_manager = ExporterManager(False)

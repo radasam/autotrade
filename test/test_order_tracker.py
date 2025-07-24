@@ -1,7 +1,7 @@
 from autotrade.trader.order_tracker import OrderTracker
 from autotrade.settings.contants import ORDER_BUY, ORDER_SELL
 from autotrade.types.pending_order import PendingOrder
-from autotrade.metrics.prometheus import PrometheusExporter
+from autotrade.metrics.exporter.prometheus import PrometheusExporter
 
 pe = PrometheusExporter()
 

@@ -1,8 +1,15 @@
 from pydantic import BaseModel
 from typing import Union
 from datetime import datetime
+from enum import Enum
+
+class OrderType(Enum):
+    MARKET = "market"
+    LIMIT = "limit"
+
 
 class PendingOrder(BaseModel):
+    order_type: OrderType  # e.g., "market", "limit"
     side: str
     volume: float
     price: float

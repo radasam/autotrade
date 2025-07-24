@@ -16,13 +16,15 @@ class BacktestingMarketPrice:
         self.file_path = file_path
         self.data: pd.DataFrame = pd.DataFrame()
         self.current_time: datetime
-        self.end_time: datetime
+        self.start_time: datetime
 
     def load_data(self):
         self.data = pd.read_csv(self.file_path, parse_dates=['time'], index_col=None)
         self.data.sort_values(by='time', inplace=True)
-        self.current_time = self.data['time'].min() - timedelta(seconds=1)
+        self.start_time = self.data['time'].min()
+        self.current_time = self.data['time'].min()
         self.end_time = self.data['time'].max()
+        print("loaded file", self.file_path, "start", self.start_time, "end", self.end_time, "current", self.current_time)
 
     def get_next_values(self, time: datetime) -> tuple[str, bool]:
         if time > self.end_time:
@@ -46,28 +48,27 @@ class BacktestingMarketPrice:
         return json.dumps(dict_out), False
 
 class BacktestingFileOrders:
-    def __init__(self, buys_file: str, sells_file: str):
-        self.buys_file = buys_file
-        self.sells_file = sells_file
+    def __init__(self, file_path: str):
+        self.file_path = file_path
         self.data: pd.DataFrame = pd.DataFrame()
         self.current_time: datetime
+        self.start_time: datetime
     
     def load_data(self):
-        buys_data =  pd.read_csv(self.buys_file, parse_dates=['time'], index_col=None)
-        buys_data['side'] = 'bid'
-        sells_data = pd.read_csv(self.sells_file, parse_dates=['time'], index_col=None)
-        sells_data['side'] = 'sell'
-        self.data = pd.concat([buys_data, sells_data], ignore_index=True)
+        self.data =  pd.read_csv(self.file_path, parse_dates=['time'], index_col=None)
         self.data.sort_values(by='time', inplace=True)
-        self.current_time = self.data['time'].min() - timedelta(seconds=1)
+        self.start_time = self.data['time'].min()
+        self.current_time = self.data['time'].min()
         self.end_time = self.data['time'].max()
+        print("loaded file", self.file_path, "start", self.start_time, "end", self.end_time, "current", self.current_time)
 
     def get_next_values(self, time: datetime) -> tuple[str, bool]:
         if time > self.end_time:
             return None, True
-
+        
         filtered = self.data[(self.data['time'] > self.current_time) & (self.data['time'] <= time)]
         if filtered.empty:
+            self.current_time = time
             return None, False
         
         self.current_time = filtered['time'].max()
@@ -87,7 +88,7 @@ class BacktestingFileOrders:
         return json.dumps(dict_out), False
 
 class BacktestingFile:
-    def __init__(self, file_path: str):
+    def __init__(self, file_path: str, current_time: datetime):
         pass
 
     @abstractmethod
@@ -105,7 +106,6 @@ class BacktestingProvider:
         self.interval = interval
         self.current_time = start_time
         self.folder_path = folder_path
-        self.current_time = start_time
         self.data = []
         self.current_files: Dict[str, BacktestingFile] = {}
         self.files: Dict[str, str] = {}
@@ -115,7 +115,7 @@ class BacktestingProvider:
     def prepare_files(self):
         # Load data from files in the folder_path
 
-        file_prefixes = ['market_price', 'order_buys', 'order_sells']
+        file_prefixes = ['market_price', 'orders']
        
         files = os.listdir(self.folder_path)
         for file in files:
@@ -136,48 +136,72 @@ class BacktestingProvider:
             if len(unix_time) != 10:
                 continue
 
-            end_time = datetime.fromtimestamp(int(unix_time), tz=timezone.utc)
+            start_time = datetime.fromtimestamp(int(unix_time), tz=timezone.utc)
 
-            if end_time < self.start_time:
+            if start_time < self.start_time:
                 continue
+
+            filepath = os.path.join(self.folder_path, file)
 
             if metric_type not in self.files:
                 self.files[metric_type] = {}
 
-            self.files[metric_type][end_time] = os.path.join(self.folder_path, file)
+            self.files[metric_type][start_time] = filepath
+
 
     def get_next_file_for_metric(self, metric_type: str) -> BacktestingFile:
-        matched_date = datetime.now(timezone.utc)
+        matched_date = None
         matched_file = ""
 
         for start_time, file_path in self.files[metric_type].items():
             if start_time > self.current_time:
-                if start_time > matched_date:
+                if not matched_date or start_time < matched_date:
                     matched_date = start_time
                     matched_file = file_path
-
-        file = BacktestingMarketPrice(matched_file)
+        
+        if matched_file == "":
+            return None
+        
+        if metric_type == 'market_price':
+            file = BacktestingMarketPrice(matched_file)
+        else:
+            file = BacktestingFileOrders(matched_file)
 
         file.load_data()
-        self.current_time = file.current_time
         return file
     
-    def get_next_event(self):
-        for metric_type in ['orders', 'market_price']:
+    def initialise_files(self):
+        min_start_time = None
+
+        for metric_type in ['market_price', 'orders']:
             if metric_type not in self.current_files:
-                self.current_files[metric_type] = self.get_next_file_for_metric(metric_type)
-
-            current_file = self.current_files[metric_type]
-
-            data, end = current_file.get_next_values(self.current_time + self.interval)
+                current_file = self.get_next_file_for_metric(metric_type)
+                if not min_start_time or min_start_time < current_file.start_time:
+                    min_start_time = current_file.start_time - self.interval
+                self.current_files[metric_type] = current_file
+                
+        logging.info("setting start time to " + str(min_start_time))
+        self.current_time = min_start_time
+    
+    def get_next_event(self):
+        for metric_type in ['market_price', 'orders']:
+            if metric_type not in self.current_files:
+                current_file = self.get_next_file_for_metric(metric_type)
+                if not current_file:
+                    print(f"No more data for {metric_type} at {self.current_time + self.interval}")
+                    return None
+                self.current_files[metric_type] = current_file
+            data, end = self.current_files[metric_type].get_next_values(self.current_time + self.interval)
             while end:
                 print("trying to get next file for metric:", metric_type)
-                self.current_files[metric_type] = self.get_next_file_for_metric(metric_type)
-                if current_file is None:
+                current_file = self.get_next_file_for_metric(metric_type)
+                if not current_file:
                     print(f"No more data for {metric_type} at {self.current_time + self.interval}")
                     return None
                 
-                data, end = current_file.get_next_values(self.current_time + self.interval)
+                self.current_files[metric_type] = current_file
+                
+                data, end = self.current_files[metric_type].get_next_values(self.current_time + self.interval)
 
             if data is not None:
                 return data
@@ -187,6 +211,7 @@ class BacktestingProvider:
             
     async def start(self):
         self.prepare_files()
+        self.initialise_files()
         await asyncio.sleep(0.1)
         await self._run_interval_loop()
 
@@ -194,11 +219,17 @@ class BacktestingProvider:
         # print(f"Current time: {self.current_time.isoformat()}")
         event = self.get_next_event()
         if event is not None:
-            await self.on_message(event)
+            self.on_message(event)
             return
         self.current_time = self.current_time + self.interval
-        await asyncio.sleep(self.interval.total_seconds())
+        await asyncio.sleep(self.interval.total_seconds()/self.real_time_factor)
 
     async def _run_interval_loop(self):
         while True:
             await self._do_one_iteration()
+
+
+def get_start_time_for_file(filepath: str):
+    file = BacktestingMarketPrice(filepath)
+    file.load_data()
+    return file.current_time

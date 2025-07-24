@@ -1,5 +1,5 @@
 from autotrade.metrics.metric_values.main import MetricValue
-from autotrade.metrics.prometheus import PrometheusExporter
+from autotrade.metrics.exporter.prometheus import PrometheusExporter
 
 class Recieved_Messages(MetricValue):
     def __init__(self, product: str, metrics_exporter: PrometheusExporter):

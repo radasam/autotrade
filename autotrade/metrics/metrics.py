@@ -1,9 +1,10 @@
 from autotrade.events.events import Events
-from autotrade.metrics.prometheus import PrometheusExporter
+from autotrade.metrics.exporter.prometheus import PrometheusExporter
 from autotrade.metrics.metric_values.market_price import MarketPrice
 from autotrade.metrics.metric_values.orders import Orders
 from autotrade.metrics.metric_values.recieved_messages import Recieved_Messages
 from autotrade.metrics.metric_values.main import MetricValue
+from autotrade.metrics.plotter.plotter import Plotter
 from autotrade.types.order_metrics import OrderMetrics, PriceMetrics
 
 import asyncio
@@ -73,9 +74,15 @@ class Metrics():
         await asyncio.gather(self.orders.start(), self.market_price.start(), self.recieved_messages.start())
 
 class MetricsManager():
-    def __init__(self, product: str, events: Events):
-        self.metrics_exporter = PrometheusExporter()
+    def __init__(self, product: str, events: Events, store_history: bool):
+        self.metrics_exporter = PrometheusExporter(store_history=store_history)
         self.metrics = Metrics(product, self.metrics_exporter, events)
+
+        if store_history:
+            self.plotter = Plotter(product)
+            self.plotter.add_plot(self.metrics_exporter.guage_market_price.get_values, 'b')
+            self.plotter.add_plot(self.metrics_exporter.guage_market_price_short_moving_average.get_values, 'g')
+            self.plotter.add_plot(self.metrics_exporter.guage_market_price_long_moving_average.get_values, 'r')
 
 
     def update_order(self, order_updates, time: str, recieved: int):
@@ -92,3 +99,11 @@ class MetricsManager():
 
     async def start(self):
         await self.metrics.start()
+
+    async def start_plotter_async(self):
+        if self.plotter:                                    
+            await self.plotter.start_async()
+
+    def start_plotter(self):
+        if self.plotter:
+            self.plotter.start_plot()

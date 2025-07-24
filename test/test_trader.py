@@ -5,7 +5,7 @@ from datetime import datetime
 from autotrade.broker.paper_broker import PaperBroker
 from autotrade.settings.contants import ORDER_BUY, ORDER_SELL
 from autotrade.metrics.metrics import Metrics
-from autotrade.metrics.prometheus import PrometheusExporter
+from autotrade.metrics.exporter.prometheus import PrometheusExporter
 from autotrade.trader.trader import Trader
 from autotrade.types.order_metrics import OrderMetrics
 from autotrade.types.pending_order import PendingOrder

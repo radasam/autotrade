@@ -2,7 +2,7 @@ import math
 import logging
 from typing import Tuple
 
-from autotrade.metrics.prometheus import PrometheusExporter     
+from autotrade.metrics.exporter.prometheus import PrometheusExporter     
 from autotrade.settings.contants import ORDER_BUY, ORDER_SELL   
 from autotrade.trader.order_tracker import OrderTracker
 from autotrade.types.pending_order import PendingOrder
@@ -22,6 +22,9 @@ class PositionTracker:
         self.order_tracker = order_tracker
         self.entry_confidence = 0
         self.take_profit = -1
+        self.total_profit = 0
+        self.minimum_order_size = 0.00000001  # Minimum order size for the product, can be adjusted based on the product's requirements
+        self.min_confidence_delta=0.5
         pass
 
     async def _calculate_take_profit(
@@ -62,11 +65,13 @@ class PositionTracker:
 
     async def check_take_profit(self, current_confidence: float, current_spread: float, price: float) -> Tuple[bool, float]:
         if current_confidence == 0:
+            logging.info("curr confidence = 0")
             return False, 0
 
         await self.update_take_profit(current_confidence, current_spread)
         
         if self.take_profit == -1:
+            logging.info("take profit negative")
             return False, 0
         
         self.metrics_exporter.guage_take_profit.labels(self.product).set(self.take_profit)
@@ -104,7 +109,9 @@ class PositionTracker:
             return 0
 
         
-        max_position = (self.cash) / price
+        current_position_cost = self.position * price
+
+        max_position = (self.cash + current_position_cost) / price
         target_position = max_position * confidence * action
 
         return target_position
@@ -127,13 +134,17 @@ class PositionTracker:
             # if we have a position on the opposite side, we should let take profit handle it
             return 0, False
 
+        if (self.position > 0 and action > 0) and confidence < self.entry_confidence:
+            if abs(self.entry_confidence - confidence) < self.min_confidence_delta:
+                return 0, False 
+
 
         target_position = self.calculate_target_position(price, action, confidence)
         raw_position_delta = target_position  - self.position - pending_position
         raw_volume_delta = raw_position_delta * price
 
         
-        adj_position_delta = math.floor(raw_position_delta/0.00000001)*0.00000001
+        adj_position_delta = math.floor(raw_position_delta/self.minimum_order_size)*self.minimum_order_size
         adj_volume_delta = round(adj_position_delta * price, 2)
 
         if (abs(adj_position_delta) * price) < self.tick_size:
@@ -143,14 +154,20 @@ class PositionTracker:
 
 
     def handle_order_filled(self, order: PendingOrder):
+        position_before = self.position
+        cash_before = self.cash
         volume = order.filled_size
         price = order.avg_filled_price
         side = order.side
         cost = volume * price
-        self.cash -= cost if side == ORDER_BUY else -cost
-        self.position += volume if side == ORDER_BUY else -volume
-        self.position_cost += cost if side == ORDER_BUY else -cost
+        self.cash -= cost if side == ORDER_BUY else cost * -1
+        self.position += volume if side == ORDER_BUY else volume * -1
+        self.position_cost += cost if side == ORDER_BUY else cost * -1
         self.position_value = self.position * price
+
+        # python floats can be imprecise, so we need to avoid very small positions
+        if self.position < self.minimum_order_size:
+            self.position = 0
 
         if side == ORDER_BUY:
             self.entry_confidence = order.confidence
@@ -159,9 +176,12 @@ class PositionTracker:
 
         self.new_take_profit = -1
         
-        print(f"order filled: {order}, cash: {self.cash}, position: {self.position}, position_cost: {self.position_cost}, position_value: {self.position_value}")
+        print(f"Order filled: {order.order_id} - {side} {volume} @ {price} | Cash: {self.cash} | Position: {self.position} | Cash Before: {cash_before} | Position Before: {position_before}")
 
-        profit = (price - self.avg_price) * volume
+        profit = (price - self.avg_price) * volume if self.position > 0 else 0
+        self.total_profit += profit
+
+
 
         if self.position > 0:
             self.avg_price = self.position_cost / self.position
@@ -172,10 +192,11 @@ class PositionTracker:
 
         self.metrics_exporter.guage_cash_balance.labels(self.product).set(self.cash)
         self.metrics_exporter.guage_position.labels(self.product).set(self.position)
-        self.metrics_exporter.guage_position_cost.labels(self.product).set(self.position_cost)
         self.metrics_exporter.guage_average_price.labels(self.product).set(self.avg_price)
-        self.metrics_exporter.guage_profit(labels=self.product).set(profit if self.position > 0 else 0)
-
+        self.metrics_exporter.guage_action_price.labels(self.product).set(price)
+        self.metrics_exporter.guage_action_volume.labels(self.product).set(volume)
+        self.metrics_exporter.guage_action_value.labels(self.product).set(cost)
+        self.metrics_exporter.summary_filled_orders.labels(self.product).observe(1)
 
     def get_position(self):
         return self.position

@@ -1,3 +1,5 @@
+
+import logging
 from math import tanh
 
 from autotrade.types.order_metrics import OrderMetrics, PriceMetrics
@@ -10,13 +12,16 @@ class MovingAverageStrategy:
     async def get_signals(self, config: Config, order_metrics: OrderMetrics, price_metrics: PriceMetrics) -> tuple[float, float, float]:
 
         slope = (price_metrics.short_moving_average - price_metrics.long_moving_average) / price_metrics.long_moving_average
+
         confidence = round(abs(tanh(slope * config.moving_average_sensitivity)),2)
 
         target_distance = abs(price_metrics.average_true_range * (1 + confidence * config.order_price_multiplier))
 
-        if price_metrics.short_moving_average > price_metrics.long_moving_average:
+        if price_metrics.short_moving_average < price_metrics.long_moving_average and price_metrics.short_moving_average < price_metrics.price:
+            logging.info(f"Moving Average Strategy: Buy signal detected with confidence {confidence} and target price {round(price_metrics.price + target_distance, 2)}, short MA: {price_metrics.short_moving_average}, long MA: {price_metrics.long_moving_average}, price: {price_metrics.price}")
             return 1, confidence, round(price_metrics.price + target_distance, 2)
-        elif price_metrics.short_moving_average < price_metrics.long_moving_average:
-            return -1, confidence, round(price_metrics.price - target_distance)
+        # elif price_metrics.short_moving_average > price_metrics.long_moving_average and price_metrics.short_moving_average > price_metrics.price:
+        #     logging.info(f"Moving Average Strategy: Sell signal detected with confidence {confidence} and target price {round(price_metrics.price - target_distance, 2)}, short MA: {price_metrics.short_moving_average}, long MA: {price_metrics.long_moving_average}, price: {price_metrics.price}")
+        #     return -1, confidence, round(price_metrics.price - target_distance, 2)
         else:
-            return 0, 0, 0
+            return 0, confidence, 0

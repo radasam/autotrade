@@ -79,6 +79,10 @@ class StrategyMux:
         if strategy:
             action, confidence, price = await strategy.get_signals(config_value, order_metrics, price_metrics)
 
+            if confidence < config_value.min_confidence_for_action:
+                self.update_signal(0)
+                return 0, confidence, 0
+                
             self.update_signal(action)
             return self.check_signal(config_value), confidence, price
         

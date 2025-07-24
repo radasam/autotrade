@@ -1,5 +1,6 @@
 import logging
 import asyncio
+import uuid
 from typing import Dict, Tuple, Union, List
 from datetime import datetime, timedelta
 
@@ -8,7 +9,8 @@ from autotrade.settings.contants import ORDER_BUY, ORDER_SELL
 from autotrade.types.broker_error import BrokerError, existing_order_error, insufficient_funds_error, insufficient_product_error, request_error
 from autotrade.events.events import Events
 from autotrade.events.event_types import EventType
-from autotrade.types.pending_order import PendingOrder
+from autotrade.types.pending_order import PendingOrder, OrderType
+from autotrade.types.order_metrics import PriceMetrics
 
 class PaperBroker():
 
@@ -53,7 +55,6 @@ class PaperBroker():
                     self.cash_balance -= filled_volume * avg_filled_price if side == ORDER_BUY else -1 * filled_volume * avg_filled_price 
 
                     self.events.trigger_event(EventType.ORDER_FILLED, self.active_order.model_dump())
-                    logging.info(f"Order {self.active_order} is filled")
                     self.active_order = None
                     return
                 if self.active_order.status == 'CANCELLED':
@@ -65,13 +66,12 @@ class PaperBroker():
 
                     self.events.trigger_event(EventType.ORDER_CANCELLED, self.active_order.model_dump())
                     self.active_order = None
-                    logging.info(f"Order {self.active_order} is cancelled")
                     return
 
 
-    async def update_price(self, price: float):
+    async def update_price(self, price_metrics: PriceMetrics):
         async with self.price_lock:
-            self.curr_price = price
+            self.curr_price = price_metrics.price
 
     async def update_order_book(self, values: Dict[str,Dict[float, str]]):
         async with self.order_lock:
@@ -89,8 +89,64 @@ class PaperBroker():
 
                 self.try_to_fill_order()
 
-
     def try_to_fill_order(self) -> None:
+        if not self.active_order:
+            return
+        
+        if self.active_order.status == "FILLED":
+            return
+        if self.active_order.filled_size > 0:
+            return
+        
+        if self.active_order.order_type == OrderType.MARKET:
+            self.try_to_fill_market_order()
+        elif self.active_order.order_type == OrderType.LIMIT:
+            self.try_to_fill_limit_order()
+
+
+
+    def try_to_fill_market_order(self) -> None:
+        order_volume = self.active_order.volume
+        order_side = self.active_order.side
+        volume_filled = self.active_order.filled_size
+        avg_price = self.active_order.avg_filled_price
+
+        logging.debug(f"Trying to fill market order {self.active_order} with volume {order_volume} and price {self.curr_price}")
+
+
+        orders = self.sells if order_side == ORDER_BUY else self.buys
+        prices = list(orders.keys())
+
+        if order_side == ORDER_SELL:
+            prices.sort(reverse=True)
+
+        if not orders:
+            return 0, 0, False
+        for p in prices:
+
+            if order_side == ORDER_BUY:
+                if p < self.curr_price * 0.95:
+                    continue
+                if p > self.curr_price:
+                    continue
+
+            delta_volume = min(order_volume - volume_filled, orders[p])
+            
+            avg_price = ((avg_price * volume_filled) + (p * delta_volume)) / (volume_filled + delta_volume)
+            volume_filled += delta_volume
+            if volume_filled >= order_volume:
+                self.active_order.status = "FILLED"
+                self.active_order.filled_size= volume_filled
+                self.active_order.avg_filled_price = avg_price
+                return
+            
+        if volume_filled > 0:
+            self.active_order.filled_size = volume_filled
+            self.active_order.avg_filled_price = avg_price
+            return
+
+
+    def try_to_fill_limit_order(self) -> None:
         order_volume =  self.active_order.volume
         order_price = self.active_order.price 
         order_side = self.active_order.side
@@ -104,7 +160,7 @@ class PaperBroker():
             return
 
 
-        logging.info(f"Trying to fill order {self.active_order} with volume {order_volume} and price {order_price}")
+        logging.debug(f"Trying to fill order {self.active_order} with volume {order_volume} and price {order_price}")
 
         orders = self.sells if order_side == ORDER_BUY else self.buys
         prices = list(orders.keys())
@@ -131,15 +187,16 @@ class PaperBroker():
                 self.active_order.status = "FILLED"
                 self.active_order.filled_size= volume_filled
                 self.active_order.avg_filled_price = avg_price
-                logging.info(f"Order {self.active_order} is filled")
+                logging.debug(f"Order {self.active_order} is filled")
                 return
-            if volume_filled > 0:
-                self.active_order.filled_size = volume_filled
-                self.active_order.avg_filled_price = avg_price
-                logging.info(f"Order {self.active_order} is partially filled")
-                return
+            
+        if volume_filled > 0:
+            self.active_order.filled_size = volume_filled
+            self.active_order.avg_filled_price = avg_price
+            logging.debug(f"Order {self.active_order} is partially filled")
+            return
 
-    async def create_market_order(self, volume: str, confidence: float) -> Tuple[Union[PendingOrder, None], Union[BrokerError,None]]:
+    async def create_market_order(self, volume: str, confidence: float, timeout_sec: int) -> Tuple[Union[PendingOrder, None], Union[BrokerError,None]]:
         async with self.order_lock:
             side = None
 
@@ -157,18 +214,27 @@ class PaperBroker():
             else:
                 side = ORDER_SELL
 
+            timeout_at = datetime.now() + timedelta(seconds=timeout_sec)
+            id_suffix = str(uuid.uuid4())[:8]
+
             new_order = PendingOrder(
+                order_type=OrderType.MARKET,
                 volume=abs(float(volume)),
                 price=self.curr_price,
                 side=side,
-                status="FILLED",
-                order_id="dummy_order_id",
-                client_order_id="dummy_client_order_id",
-                timeout_at=None,
+                status="OPEN",
+                order_id="dummy_order_id-" + id_suffix,
+                client_order_id="dummy_client_order_id-" + id_suffix,
+                timeout_at=timeout_at,
                 confidence=confidence
             )
 
-            self.active_order = new_order
+            self.active_order = new_order   
+
+            logging.debug(f"Created market order {self.active_order}")
+            logging.info(f"Order Created: {self.active_order.order_id} - {self.active_order.side} {self.active_order.volume} @ {self.active_order.price}")
+
+            self.try_to_fill_order()
 
             return new_order, None
     
@@ -192,14 +258,16 @@ class PaperBroker():
 
 
             timeout_at = datetime.now() + timedelta(seconds=timeout_sec)
+            id_suffix = str(uuid.uuid4())[:8]
 
             new_order = PendingOrder(
+                order_type=OrderType.LIMIT,
                 volume=abs(float(volume)),
                 price=float(limit_price),
                 side=side,
                 status="OPEN",
-                order_id="dummy_order_id",
-                client_order_id="dummy_client_order_id",
+                order_id="dummy_order_id-"+ id_suffix,
+                client_order_id="dummy_client_order_id-"+ id_suffix,
                 timeout_at=timeout_at,
                 confidence=confidence
             )

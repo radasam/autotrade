@@ -1,6 +1,6 @@
 from typing import Dict, Tuple
 
-from autotrade.metrics.prometheus import PrometheusExporter     
+from autotrade.metrics.exporter.prometheus import PrometheusExporter     
 from autotrade.types.pending_order import PendingOrder
 from autotrade.settings.contants import ORDER_BUY, ORDER_SELL
 
@@ -11,11 +11,6 @@ class OrderTracker():
         self.metrics_exporter = metrics_exporter
 
     def add_order(self, pending_order: PendingOrder):
-        if pending_order.status == "FILLED":
-            # we can get orders that are already filled
-            # this will be when a market order is placed
-            return
-
         self.orders[pending_order.client_order_id] = pending_order
 
         self.update_metrics()
@@ -65,4 +60,3 @@ class OrderTracker():
     def update_metrics(self):
         pending_position, pending_cost = self.get_pending_position()
         self.metrics_exporter.guage_pending_position.labels(self.product).set(pending_position) 
-        self.metrics_exporter.guage_pending_cash.labels(self.product).set(pending_cost)

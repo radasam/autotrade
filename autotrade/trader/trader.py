@@ -1,3 +1,4 @@
+import asyncio
 import logging
 
 from autotrade.broker.broker import Broker
@@ -23,10 +24,14 @@ class Trader:
         
         self.strategy_mux.register_strategy(OrderImbalanceStrategy(), "order_imbalance")
         self.strategy_mux.register_strategy(MovingAverageStrategy(), "moving_average")
+
+        self.decision_lock = asyncio.Lock()
         
 
     async def handle_price_update(self, price_metrics: PriceMetrics):
+        print("price_update")
         order_metrics = await self.metrics.get_order_metrics()
+        print("orders")
         await self.handle_update(order_metrics, price_metrics)
 
     async def handle_order_update(self, order_metrics: OrderMetrics):
@@ -37,7 +42,6 @@ class Trader:
         order = PendingOrder(**pending_order)
         self.PositionTracker.handle_order_filled(order)
         self.order_tracker.fill_order(order.client_order_id)
-        print("order filled done")
 
     async def handle_order_cancelled(self, pending_order: dict):
         order = PendingOrder(**pending_order)
@@ -45,14 +49,26 @@ class Trader:
             self.PositionTracker.handle_order_filled(order)
         self.order_tracker.remove_order(order.client_order_id)
 
+    async def create_order(self, position_delta: str, limit_price: str, confidence: float, timeout: int) -> PendingOrder:
+        config = await self.config_getter.get_config()
+
+        if config.order_type == "market":
+            pending_order, err = await self.broker.create_market_order(position_delta, confidence, timeout)
+        else:
+            pending_order, err = await self.broker.create_limit_order(str(position_delta), str(limit_price), confidence, timeout)
+
+        return pending_order, err
 
     async def check_action(self, order_metrics: OrderMetrics, price_metrics: PriceMetrics):
+        print("checking action")
         should_take_profit = False
         should_stop_losses = False
         if price_metrics.price ==0:
             return
 
         action, confidence, limit_price = await self.strategy_mux.get_signals(order_metrics, price_metrics)
+
+        self.metrics.metrics_exporter.guage_confidence.labels(self.product).set(confidence*action)
 
         if action != 0:
             return action, confidence, limit_price
@@ -62,7 +78,7 @@ class Trader:
 
         if should_take_profit:
             logging.info(f"Action: {action}, Confidence: {confidence}, Limit Price: {limit_price}, Take Profit: {should_take_profit}")
-            return 1, 1, limit_price
+            return -1, 1, limit_price
 
         should_stop_losses, limit_price = await self.PositionTracker.check_stop_losses(price_metrics.price, price_metrics.long_moving_average)
 
@@ -74,40 +90,42 @@ class Trader:
 
     async def handle_update(self, order_metrics: OrderMetrics, price_metrics: PriceMetrics):
 
-        if self.order_tracker.get_pending_position()[0] != 0:
-            return
+        async with self.decision_lock:
 
-        action, confidence, limit_price = await self.check_action(order_metrics, price_metrics)
-
-        if action == 0:
-            return
-
-        position_delta, cancel_pending = self.PositionTracker.get_position_delta(limit_price ,action, confidence)
-        if cancel_pending:
-            self.broker.cancel_current_order()
-            return 
-
-        if position_delta == 0:
-            return
-            
-        self.metrics.metrics_exporter.guage_limit_price.labels(self.product).set(limit_price)
-
-        pending_order, err = await self.broker.create_limit_order(str(position_delta), str(limit_price), confidence, 10)
-        if err:
-            if err.type == EXISTING_ORDER_ERROR:
-                logging.info(f"Existing order error: {err}")
+            if self.order_tracker.get_pending_position()[0] != 0:
                 return
-            if err.type == INSUFFICIENT_FUNDS_ERROR or err.type == INSUFFICIENT_PRODUCT_ERROR:
-                logging.error(f"Insufficient funds or product error: {err}")
+
+            action, confidence, limit_price = await self.check_action(order_metrics, price_metrics)
+
+            if action == 0:
+                return
+        
+            position_delta, cancel_pending = self.PositionTracker.get_position_delta(limit_price ,action, confidence)
+            if cancel_pending:
                 self.broker.cancel_current_order()
-                return
-            logging.error(f"Error creating order: {err}")
-            logging.info(f"{self.PositionTracker.position}")
-            return
-        if pending_order:
-            self.order_tracker.add_order(pending_order)
+                return 
 
-        return
+            if position_delta == 0:
+                return
+                
+            self.metrics.metrics_exporter.guage_limit_price.labels(self.product).set(limit_price)
+
+            pending_order, err = await self.create_order(str(position_delta), str(limit_price), confidence, 10)
+            if err:
+                if err.type == EXISTING_ORDER_ERROR:
+                    logging.debug(f"Existing order error: {err}")
+                    return
+                if err.type == INSUFFICIENT_FUNDS_ERROR or err.type == INSUFFICIENT_PRODUCT_ERROR:
+                    logging.error(f"Insufficient funds or product error: {err}")
+                    self.broker.cancel_current_order()
+                    return
+                logging.error(f"Error creating order: {err}")
+                logging.info(f"{self.PositionTracker.position}")
+                return
+            if pending_order:
+                self.order_tracker.add_order(pending_order)
+
+            return
         
 
 

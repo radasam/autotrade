@@ -2,6 +2,7 @@ import logging
 import asyncio
 from  datetime import datetime, timezone, timedelta
 import json
+import threading
 
 from autotrade.providers.backtesting_provider import BacktestingProvider
 from autotrade.providers.coinbase_provider import CoinbaseProvider
@@ -22,9 +23,9 @@ class Engine():
         self.loop = asyncio.get_event_loop()
         self.product = product
         self.event_handler = Events()
-        self.metrics = MetricsManager(product, self.event_handler)
-        self.provider = CoinbaseProvider(product, self.on_message)
-        # self.provider = BacktestingProvider(start_time=datetime(2025, 5,25, 15, 00, 00, tzinfo=timezone.utc), end_time=datetime(2025, 12, 11, 15, 00, 00, tzinfo=timezone.utc), interval=timedelta(seconds=0.5), real_time_factor=10.0, folder_path="./exported_data",  on_message=self.on_message)
+        self.metrics = MetricsManager(product, self.event_handler, True)
+        # self.provider = CoinbaseProvider(product, self.on_message)
+        self.provider = BacktestingProvider(start_time=datetime(2025, 7,12, 17, 00, 00, tzinfo=timezone.utc), end_time=datetime(2025, 12, 11, 15, 00, 00, tzinfo=timezone.utc), interval=timedelta(seconds=0.5), real_time_factor=20.0, folder_path="./exported_data",  on_message=self.on_message)
         self.broker = PaperBroker(product,1000, self.event_handler)
         self.trader = Trader(product, self.broker, self.metrics.metrics, config)
 
@@ -32,7 +33,7 @@ class Engine():
         exporter_manager.add_exporter("orders", Exporter("orders", 40000, timedelta(hours=1), LocalFileConnector("/Users/samradage/repos/autotrade/exported_data")))
         exporter_manager.add_exporter("market_price", Exporter("market_price", 20000, timedelta(hours=1), LocalFileConnector("/Users/samradage/repos/autotrade/exported_data")))
 
-        self.event_handler.add_handler("handle_price_update", EventType.PRICE_UPDATE, self.broker.update_price)
+        self.event_handler.add_handler("update_price", EventType.PRICE_UPDATE, self.broker.update_price)
         self.event_handler.add_handler("handle_price_update", EventType.PRICE_UPDATE, self.trader.handle_price_update)
         self.event_handler.add_handler("handle_order_update", EventType.ORDER_UPDATE, self.trader.handle_order_update)
         self.event_handler.add_handler("handle_order_book_update", EventType.ORDER_BOOK_UPDATE, self.broker.update_order_book)
@@ -80,4 +81,13 @@ class Engine():
 
     async def start(self):
         self.metrics.start_metrics_exporter()
-        await asyncio.gather(self.metrics.start(), self.provider.start(), exporter_manager.start(), self.event_handler.start(), self.broker.start(), config.start())
+        async def async_gather():
+            await asyncio.gather(self.metrics.start(), self.metrics.start_plotter_async(), self.provider.start(), exporter_manager.start(), self.event_handler.start(), self.broker.start(), config.start())
+        def async_tasks():
+            asyncio.run(async_gather())
+    
+        async_thread = threading.Thread(target=async_tasks)
+        async_thread.daemon = True
+        async_thread.start()
+
+        self.metrics.start_plotter()

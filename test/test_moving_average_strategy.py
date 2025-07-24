@@ -7,7 +7,7 @@ from autotrade.types.order_metrics import OrderMetrics, PriceMetrics
 async def test_moving_average_strategy_sensitivity_1(with_config):
     m = MovingAverageStrategy()
 
-    with_config.set_value("moving_average_sensitivity", 100) 
+    with_config.set_value("moving_average_sensitivity", 1000) 
     with_config.set_value("order_price_multiplier", 0.5)
 
     config = await with_config.get_config()
@@ -40,7 +40,7 @@ async def test_moving_average_strategy_sensitivity_1(with_config):
 async def test_moving_average_strategy_sensitivity_2(with_config):
     m = MovingAverageStrategy()
 
-    with_config.set_value("moving_average_sensitivity", 1000) 
+    with_config.set_value("moving_average_sensitivity", 5000) 
     with_config.set_value("order_price_multiplier", 0.5)
 
     config = await with_config.get_config()
@@ -56,9 +56,9 @@ async def test_moving_average_strategy_sensitivity_2(with_config):
         imbalance=0.5
     )
     price_metrics = PriceMetrics(
-        price=105,
-        short_moving_average=105,
-        long_moving_average=100,
+        price=77734,
+        short_moving_average=77748,
+        long_moving_average=77729,
         average_true_range=5
     )
 
